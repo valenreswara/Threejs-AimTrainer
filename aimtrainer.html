@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>FPS Trainer</title>
+    <style>
+        body { margin: 0; overflow: hidden; }
+        #hud {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+            pointer-events: none;
+        }
+        #controls {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 10px;
+            border-radius: 5px;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
+        #crosshair {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-size: 24px;
+            pointer-events: none;
+        }
+        select, button {
+            margin: 5px;
+            padding: 5px;
+            background: #444;
+            color: white;
+            border: 1px solid #666;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div id="hud">
+        Score: <span id="score">0</span><br>
+        Accuracy: <span id="accuracy">0</span>%<br>
+        Time: <span id="timer">0</span>s
+    </div>
+    <div id="controls">
+        <select id="modeSelect">
+            <option value="click">Click Shooting</option>
+            <option value="track">Target Tracking</option>
+            <option value="flick">Flick Shots</option>
+        </select>
+        <button id="startButton">Start</button>
+        <button id="resetButton">Reset</button>
+    </div>
+    <div id="crosshair">+</div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        let camera, scene, renderer, targets = [], currentMode = 'click';
+        let score = 0, shots = 0, hits = 0, isRunning = false;
+        let lastTime = 0, timer = 0;
+
+        // Initialize the scene
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            renderer = new THREE.WebGLRenderer();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Add lighting
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.5);
+            directionalLight.position.set(0, 1, 1);
+            scene.add(directionalLight);
+
+            // Position camera
+            camera.position.z = 5;
+
+            // Setup controls
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('click', onMouseClick);
+            document.getElementById('startButton').addEventListener('click', startGame);
+            document.getElementById('resetButton').addEventListener('click', resetGame);
+            document.getElementById('modeSelect').addEventListener('change', (e) => {
+                currentMode = e.target.value;
+                resetGame();
+            });
+
+            // Lock pointer on click
+            renderer.domElement.addEventListener('click', () => {
+                renderer.domElement.requestPointerLock();
+            });
+
+            // Create room boundaries
+            createRoom();
+        }
+
+        function createRoom() {
+            const geometry = new THREE.BoxGeometry(20, 20, 20);
+            const material = new THREE.MeshPhongMaterial({ 
+                color: 0x808080,
+                side: THREE.BackSide,
+                wireframe: true
+            });
+            const room = new THREE.Mesh(geometry, material);
+            scene.add(room);
+        }
+
+        function createTarget(position) {
+            const geometry = new THREE.SphereGeometry(0.2, 32, 32);
+            const material = new THREE.MeshPhongMaterial({ color: 0xff0000 });
+            const target = new THREE.Mesh(geometry, material);
+            target.position.copy(position);
+            scene.add(target);
+            targets.push({
+                mesh: target,
+                velocity: new THREE.Vector3(
+                    (Math.random() - 0.5) * 0.05,
+                    (Math.random() - 0.5) * 0.05,
+                    (Math.random() - 0.5) * 0.05
+                )
+            });
+        }
+
+        function spawnTarget() {
+            const position = new THREE.Vector3(
+                (Math.random() - 0.5) * 8,
+                (Math.random() - 0.5) * 8,
+                (Math.random() - 0.5) * 8
+            );
+            createTarget(position);
+        }
+
+        function updateTargets(deltaTime) {
+            targets.forEach(target => {
+                if (currentMode === 'track') {
+                    target.mesh.position.add(target.velocity);
+                    
+                    // Bounce off walls
+                    if (Math.abs(target.mesh.position.x) > 9) target.velocity.x *= -1;
+                    if (Math.abs(target.mesh.position.y) > 9) target.velocity.y *= -1;
+                    if (Math.abs(target.mesh.position.z) > 9) target.velocity.z *= -1;
+                }
+            });
+        }
+
+        function onMouseMove(event) {
+            if (document.pointerLockElement === renderer.domElement) {
+                camera.rotation.y -= event.movementX * 0.002;
+                camera.rotation.x -= event.movementY * 0.002;
+                camera.rotation.x = Math.max(-Math.PI/2, Math.min(Math.PI/2, camera.rotation.x));
+            }
+        }
+
+        function onMouseClick(event) {
+            if (!isRunning) return;
+            
+            shots++;
+            const raycaster = new THREE.Raycaster();
+            raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
+
+            const intersects = raycaster.intersectObjects(targets.map(t => t.mesh));
+            
+            if (intersects.length > 0) {
+                hits++;
+                score += 100;
+                const hitTarget = targets.find(t => t.mesh === intersects[0].object);
+                scene.remove(hitTarget.mesh);
+                targets.splice(targets.indexOf(hitTarget), 1);
+                spawnTarget();
+            }
+
+            updateHUD();
+        }
+
+        function updateHUD() {
+            document.getElementById('score').textContent = score;
+            document.getElementById('accuracy').textContent = 
+                shots > 0 ? Math.round((hits / shots) * 100) : 0;
+            document.getElementById('timer').textContent = 
+                Math.round(timer * 10) / 10;
+        }
+
+        function startGame() {
+            isRunning = true;
+            score = 0;
+            shots = 0;
+            hits = 0;
+            timer = 0;
+            lastTime = performance.now();
+            
+            // Clear existing targets
+            targets.forEach(target => scene.remove(target.mesh));
+            targets = [];
+
+            // Spawn initial targets
+            for (let i = 0; i < 5; i++) {
+                spawnTarget();
+            }
+        }
+
+        function resetGame() {
+            isRunning = false;
+            targets.forEach(target => scene.remove(target.mesh));
+            targets = [];
+            updateHUD();
+        }
+
+        function animate(currentTime) {
+            requestAnimationFrame(animate);
+
+            if (isRunning) {
+                const deltaTime = (currentTime - lastTime) / 1000;
+                timer += deltaTime;
+                updateTargets(deltaTime);
+                updateHUD();
+                lastTime = currentTime;
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        // Initialize and start animation
+        init();
+        animate(0);
+
+        // Handle window resizing
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
