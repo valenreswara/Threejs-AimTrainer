@@ -39,6 +39,13 @@
             border: 1px solid #666;
             border-radius: 3px;
         }
+        #stats {
+            position: fixed;
+            bottom: 10px;
+            left: 10px;
+            color: white;
+            font-family: Arial, sans-serif;
+        }
     </style>
 </head>
 <body>
@@ -56,12 +63,20 @@
         <button id="startButton">Start</button>
         <button id="resetButton">Reset</button>
     </div>
+    <div id="stats">
+        Reaction Time: <span id="reactionTime">0</span>ms<br>
+        Avg Reaction: <span id="avgReaction">0</span>ms
+    </div>
     <div id="crosshair">+</div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script>
         let camera, scene, renderer, targets = [], currentMode = 'click';
         let score = 0, shots = 0, hits = 0, isRunning = false;
         let lastTime = 0, timer = 0;
+        let lastTargetTime = 0;
+        let reactionTimes = [];
+        let targetAppearTime = 0;
+        let flickerTimeout = null;
 
         // Initialize the scene
         function init() {
@@ -117,23 +132,61 @@
             const target = new THREE.Mesh(geometry, material);
             target.position.copy(position);
             scene.add(target);
-            targets.push({
+            
+            const targetObj = {
                 mesh: target,
                 velocity: new THREE.Vector3(
                     (Math.random() - 0.5) * 0.05,
                     (Math.random() - 0.5) * 0.05,
                     (Math.random() - 0.5) * 0.05
-                )
-            });
+                ),
+                appearTime: performance.now()
+            };
+            
+            targets.push(targetObj);
+            return targetObj;
         }
 
-        function spawnTarget() {
-            const position = new THREE.Vector3(
+        function getRandomPosition() {
+            return new THREE.Vector3(
                 (Math.random() - 0.5) * 8,
                 (Math.random() - 0.5) * 8,
                 (Math.random() - 0.5) * 8
             );
-            createTarget(position);
+        }
+
+        function spawnTarget() {
+            const position = getRandomPosition();
+            const target = createTarget(position);
+            
+            if (currentMode === 'flick') {
+                targetAppearTime = performance.now();
+                
+                // Schedule next target teleport
+                flickerTimeout = setTimeout(() => {
+                    if (isRunning && targets.length > 0) {
+                        teleportTargets();
+                    }
+                }, Math.random() * 1000 + 1000); // Random delay between 1-2 seconds
+            }
+            
+            return target;
+        }
+
+        function teleportTargets() {
+            targets.forEach(target => {
+                target.mesh.position.copy(getRandomPosition());
+                target.appearTime = performance.now();
+            });
+            
+            // Schedule next teleport
+            if (isRunning) {
+                flickerTimeout = setTimeout(() => {
+                    if (isRunning) {
+                        teleportTargets();
+                    }
+                }, Math.random() * 1000 + 1000);
+            }
         }
 
         function updateTargets(deltaTime) {
@@ -170,9 +223,19 @@
                 hits++;
                 score += 100;
                 const hitTarget = targets.find(t => t.mesh === intersects[0].object);
+                
+                // Calculate reaction time
+                const reactionTime = performance.now() - hitTarget.appearTime;
+                reactionTimes.push(reactionTime);
+                
                 scene.remove(hitTarget.mesh);
                 targets.splice(targets.indexOf(hitTarget), 1);
                 spawnTarget();
+                
+                // Update reaction time display
+                document.getElementById('reactionTime').textContent = Math.round(reactionTime);
+                const avgReaction = reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length;
+                document.getElementById('avgReaction').textContent = Math.round(avgReaction);
             }
 
             updateHUD();
@@ -193,21 +256,39 @@
             hits = 0;
             timer = 0;
             lastTime = performance.now();
+            reactionTimes = [];
             
             // Clear existing targets
             targets.forEach(target => scene.remove(target.mesh));
             targets = [];
 
+            // Clear any existing timeouts
+            if (flickerTimeout) {
+                clearTimeout(flickerTimeout);
+            }
+
             // Spawn initial targets
-            for (let i = 0; i < 5; i++) {
+            const targetCount = currentMode === 'flick' ? 1 : 5;
+            for (let i = 0; i < targetCount; i++) {
                 spawnTarget();
+            }
+
+            // Start teleporting targets if in flick mode
+            if (currentMode === 'flick') {
+                teleportTargets();
             }
         }
 
         function resetGame() {
             isRunning = false;
+            if (flickerTimeout) {
+                clearTimeout(flickerTimeout);
+            }
             targets.forEach(target => scene.remove(target.mesh));
             targets = [];
+            reactionTimes = [];
+            document.getElementById('reactionTime').textContent = '0';
+            document.getElementById('avgReaction').textContent = '0';
             updateHUD();
         }
 

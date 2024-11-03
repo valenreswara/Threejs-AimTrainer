@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebGL 3D Spoon</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gl-matrix/2.8.1/gl-matrix-min.js"></script>
+    <style>
+        canvas { 
+            width: 100%;
+            height: 400px;
+            background: #000000;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="glCanvas"></canvas>
+    <script>
+        const vsSource = `
+            attribute vec4 aVertexPosition;
+            attribute vec3 aVertexNormal;
+            
+            uniform mat4 uModelViewMatrix;
+            uniform mat4 uProjectionMatrix;
+            uniform mat4 uNormalMatrix;
+            
+            varying highp vec3 vLighting;
+            
+            void main(void) {
+                gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
+                
+                highp vec3 ambientLight = vec3(0.3, 0.3, 0.3);
+                highp vec3 directionalLightColor = vec3(1, 1, 1);
+                highp vec3 directionalVector = normalize(vec3(0.85, 0.8, 0.75));
+                
+                highp vec4 transformedNormal = uNormalMatrix * vec4(aVertexNormal, 1.0);
+                
+                highp float directional = max(dot(transformedNormal.xyz, directionalVector), 0.0);
+                vLighting = ambientLight + (directionalLightColor * directional);
+            }
+        `;
+
+        const fsSource = `
+            varying highp vec3 vLighting;
+            
+            void main(void) {
+                // Blue color base (R: 0.2, G: 0.4, B: 0.8)
+                gl_FragColor = vec4(0.2, 0.4, 0.8, 1.0);
+                gl_FragColor.rgb *= vLighting;
+            }
+        `;
+
+        function initShaderProgram(gl, vsSource, fsSource) {
+            const vertexShader = loadShader(gl, gl.VERTEX_SHADER, vsSource);
+            const fragmentShader = loadShader(gl, gl.FRAGMENT_SHADER, fsSource);
+            
+            const shaderProgram = gl.createProgram();
+            gl.attachShader(shaderProgram, vertexShader);
+            gl.attachShader(shaderProgram, fragmentShader);
+            gl.linkProgram(shaderProgram);
+            
+            if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
+                console.error('Unable to initialize shader program: ' + gl.getProgramInfoLog(shaderProgram));
+                return null;
+            }
+            
+            return shaderProgram;
+        }
+
+        function loadShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('An error occurred compiling the shaders: ' + gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            
+            return shader;
+        }
+
+        function initBuffers(gl) {
+            const positions = [];
+            const normals = [];
+            const indices = [];
+            
+            // Generate spoon geometry
+            const segments = 20;
+            const bowlRadius = 0.5;
+            const handleLength = 2.0;
+            
+            // Bowl of the spoon
+            for (let i = 0; i <= segments; i++) {
+                for (let j = 0; j <= segments; j++) {
+                    const theta = (i * Math.PI) / segments;
+                    const phi = (2 * j * Math.PI) / segments;
+                    
+                    const x = bowlRadius * Math.sin(theta) * Math.cos(phi);
+                    const y = bowlRadius * Math.sin(theta) * Math.sin(phi);
+                    const z = bowlRadius * Math.cos(theta);
+                    
+                    positions.push(x, y, z);
+                    normals.push(x, y, z);
+                }
+            }
+            
+            // Handle of the spoon
+            const handleWidth = 0.2;
+            const handleSegments = 10;
+            const handleStart = -0.2;
+            
+            for (let i = 0; i <= handleSegments; i++) {
+                const t = i / handleSegments;
+                const z = handleStart - t * handleLength;
+                
+                for (let j = 0; j <= segments; j++) {
+                    const angle = (2 * j * Math.PI) / segments;
+                    const x = handleWidth * Math.cos(angle) * (1 - 0.5 * t);
+                    const y = handleWidth * Math.sin(angle) * (1 - 0.5 * t);
+                    
+                    positions.push(x, y, z);
+                    const normal = vec3.normalize([], [x, y, 0]);
+                    normals.push(normal[0], normal[1], normal[2]);
+                }
+            }
+            
+            // Generate indices
+            const rows = segments + 1;
+            const cols = segments + 1;
+            
+            for (let i = 0; i < rows - 1; i++) {
+                for (let j = 0; j < cols - 1; j++) {
+                    const first = i * cols + j;
+                    const second = first + cols;
+                    
+                    indices.push(first, second, first + 1);
+                    indices.push(second, second + 1, first + 1);
+                }
+            }
+
+            const positionBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
+            
+            const normalBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, normalBuffer);
+            gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(normals), gl.STATIC_DRAW);
+            
+            const indexBuffer = gl.createBuffer();
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+            gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW);
+            
+            return {
+                position: positionBuffer,
+                normal: normalBuffer,
+                indices: indexBuffer,
+                count: indices.length,
+            };
+        }
+
+        function drawScene(gl, programInfo, buffers, deltaTime) {
+            gl.clearColor(0.0, 0.0, 0.0, 1.0);  // Black background
+            gl.clearDepth(1.0);
+            gl.enable(gl.DEPTH_TEST);
+            gl.depthFunc(gl.LEQUAL);
+            
+            gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+            
+            const fieldOfView = 45 * Math.PI / 180;
+            const aspect = gl.canvas.clientWidth / gl.canvas.clientHeight;
+            const zNear = 0.1;
+            const zFar = 100.0;
+            const projectionMatrix = mat4.create();
+            
+            mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
+            
+            const modelViewMatrix = mat4.create();
+            mat4.translate(modelViewMatrix, modelViewMatrix, [0.0, 0.0, -6.0]);
+            mat4.rotate(modelViewMatrix, modelViewMatrix, deltaTime * 0.5, [0, 1, 0]);
+            mat4.rotate(modelViewMatrix, modelViewMatrix, Math.PI / 4, [1, 0, 0]);
+            
+            const normalMatrix = mat4.create();
+            mat4.invert(normalMatrix, modelViewMatrix);
+            mat4.transpose(normalMatrix, normalMatrix);
+            
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffers.position);
+            gl.vertexAttribPointer(programInfo.attribLocations.vertexPosition, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
+            
+            gl.bindBuffer(gl.ARRAY_BUFFER, buffers.normal);
+            gl.vertexAttribPointer(programInfo.attribLocations.vertexNormal, 3, gl.FLOAT, false, 0, 0);
+            gl.enableVertexAttribArray(programInfo.attribLocations.vertexNormal);
+            
+            gl.useProgram(programInfo.program);
+            
+            gl.uniformMatrix4fv(programInfo.uniformLocations.projectionMatrix, false, projectionMatrix);
+            gl.uniformMatrix4fv(programInfo.uniformLocations.modelViewMatrix, false, modelViewMatrix);
+            gl.uniformMatrix4fv(programInfo.uniformLocations.normalMatrix, false, normalMatrix);
+            
+            gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, buffers.indices);
+            gl.drawElements(gl.TRIANGLES, buffers.count, gl.UNSIGNED_SHORT, 0);
+        }
+
+        let then = 0;
+        function render(gl, programInfo, buffers, now) {
+            now *= 0.001;
+            const deltaTime = now - then;
+            then = now;
+            
+            drawScene(gl, programInfo, buffers, deltaTime);
+            requestAnimationFrame((now) => render(gl, programInfo, buffers, now));
+        }
+
+        function main() {
+            const canvas = document.querySelector('#glCanvas');
+            const gl = canvas.getContext('webgl');
+            
+            if (!gl) {
+                console.error('Unable to initialize WebGL');
+                return;
+            }
+            
+            canvas.width = canvas.clientWidth;
+            canvas.height = canvas.clientHeight;
+            gl.viewport(0, 0, canvas.width, canvas.height);
+            
+            const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+            
+            const programInfo = {
+                program: shaderProgram,
+                attribLocations: {
+                    vertexPosition: gl.getAttribLocation(shaderProgram, 'aVertexPosition'),
+                    vertexNormal: gl.getAttribLocation(shaderProgram, 'aVertexNormal'),
+                },
+                uniformLocations: {
+                    projectionMatrix: gl.getUniformLocation(shaderProgram, 'uProjectionMatrix'),
+                    modelViewMatrix: gl.getUniformLocation(shaderProgram, 'uModelViewMatrix'),
+                    normalMatrix: gl.getUniformLocation(shaderProgram, 'uNormalMatrix'),
+                },
+            };
+            
+            const buffers = initBuffers(gl);
+            requestAnimationFrame((now) => render(gl, programInfo, buffers, now));
+        }
+
+        window.onload = main;
+    </script>
+</body>
+</html>
