@@ -65,21 +65,38 @@ function init() {
 }
 
 function createRoom() {
+    // const geometry = new THREE.BoxGeometry(50, 50, 50);
+    // const material = new THREE.MeshPhongMaterial({ 
+    //     color: 0x808080,
+    //     side: THREE.BackSide,
+    // });
+    // const room = new THREE.Mesh(geometry, material);
+    // scene.add(room);
+
+    const textureLoader = new THREE.TextureLoader();
+
+    // Load the texture for the walls
+    const wallTexture = textureLoader.load('/wall.jpg');
     const geometry = new THREE.BoxGeometry(50, 50, 50);
     const material = new THREE.MeshPhongMaterial({ 
-        color: 0x808080,
+        map: wallTexture,
         side: THREE.BackSide,
     });
     const room = new THREE.Mesh(geometry, material);
     scene.add(room);
 
+    const floorTexture = textureLoader.load('/floor.jpg');
+    floorTexture.wrapS = THREE.RepeatWrapping;
+    floorTexture.wrapT = THREE.RepeatWrapping;
+    floorTexture.repeat.set(16, 16); // Adjust this to control the number of repeats
+
     const lantai_geo = new THREE.PlaneGeometry(51, 51);
     const lantai_mat = new THREE.MeshPhongMaterial({
-        color: 0xADD8E6
+        map: floorTexture,
     });
     const lantai = new THREE.Mesh(lantai_geo, lantai_mat);
-    lantai.position.set(0,-2,0);
-    lantai.rotation.x = Math.PI * - .5;
+    lantai.position.set(0, -2, 0);
+    lantai.rotation.x = Math.PI * -0.5;
     lantai.receiveShadow = true;
     scene.add(lantai);
 }
