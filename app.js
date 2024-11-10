@@ -4,18 +4,21 @@ let lastTime = 0, timer = 0;
 let lastTargetTime = 0;
 let reactionTimes = [];
 let targetAppearTime = 0;
+let baseInterval = 5; // The time between spawns
+let nextAutoSpawnTime = 0;
+let spawnInterval = null;
 let flickerTimeout = null;
 
 // Movement variables
 const moveSpeed = 0.1;
 const keys = { w: false, a: false, s: false, d: false };
 const velocity = new THREE.Vector3();
-const roomBounds = { x: 9, y: 9, z: 9 }; // Adjust based on room size
+const roomBounds = { x: 24, y: 24, z: 24 }; // Adjust based on room size
 
 // Target spawn bounds - focused area in front of player
 const spawnBounds = {
-    x: { min: -3.5, max: 3.5 },    // Narrower horizontal range
-    y: { min: 0.5, max: 2.5 }, // Controlled vertical range
+    x: { min: -5, max: 5 },    // Narrower horizontal range
+    y: { min: 0.5, max: 5 }, // Controlled vertical range
     z: { min: -6, max: -3 }      // Only spawn in front of player
 };
 
@@ -62,7 +65,7 @@ function init() {
 }
 
 function createRoom() {
-    const geometry = new THREE.BoxGeometry(20, 20, 20);
+    const geometry = new THREE.BoxGeometry(50, 50, 50);
     const material = new THREE.MeshPhongMaterial({ 
         color: 0x808080,
         side: THREE.BackSide,
@@ -70,7 +73,7 @@ function createRoom() {
     const room = new THREE.Mesh(geometry, material);
     scene.add(room);
 
-    const lantai_geo = new THREE.PlaneGeometry(21,21);
+    const lantai_geo = new THREE.PlaneGeometry(51, 51);
     const lantai_mat = new THREE.MeshPhongMaterial({
         color: 0xADD8E6
     });
@@ -170,13 +173,6 @@ function spawnTarget() {
     
     if (currentMode === 'flick') {
         targetAppearTime = performance.now();
-
-        // Set flicker interval to 1 second (1000 ms)
-        flickerTimeout = setTimeout(() => {
-            if (isRunning && targets.length > 0) {
-                teleportTargets();
-            }
-        }, 1000);
     }
 
     return target;
@@ -202,34 +198,17 @@ function updateTargets(deltaTime) {
                 target.mesh.position.z >= spawnBounds.z.max) {
                 target.velocity.z *= -1;
             }
-
-            // Check if target is out of bounds
-            if (target.mesh.position.y < spawnBounds.y.min || 
-                Math.abs(target.mesh.position.x) > spawnBounds.x.max ||
-                target.mesh.position.z < spawnBounds.z.min ||
-                target.mesh.position.z > spawnBounds.z.max) {
-                
-                scene.remove(target.mesh);
-                targets.splice(i, 1);
-                spawnTarget();
-            }
         }
     }
 }
 
 function teleportTargets() {
+    if (!isRunning) return;
+    
     targets.forEach(target => {
         target.mesh.position.copy(getRandomSpawnPosition());
         target.appearTime = performance.now();
     });
-    
-    if (isRunning) {
-        flickerTimeout = setTimeout(() => {
-            if (isRunning) {
-                teleportTargets();
-            }
-        }, Math.random() * 500 + 500);
-    }
 }
 
 function onMouseClick(event) {
@@ -251,7 +230,15 @@ function onMouseClick(event) {
         
         scene.remove(hitTarget.mesh);
         targets.splice(targets.indexOf(hitTarget), 1);
-        spawnTarget();
+
+        // In flick mode, immediately spawn a new target and set next auto-spawn time
+        if (currentMode === 'flick') {
+            spawnTarget();
+            // Start a new interval sequence from the current time
+            nextAutoSpawnTime = Math.ceil(timer) + baseInterval;
+        } else {
+            spawnTarget(); // For other modes
+        }
         
         document.getElementById('reactionTime').textContent = Math.round(reactionTime);
         const avgReaction = reactionTimes.reduce((a, b) => a + b, 0) / reactionTimes.length;
@@ -278,28 +265,32 @@ function startGame() {
     lastTime = performance.now();
     reactionTimes = [];
     
+    // Clear any existing targets and intervals
     targets.forEach(target => scene.remove(target.mesh));
     targets = [];
-
+    clearInterval(spawnInterval);
     if (flickerTimeout) {
         clearTimeout(flickerTimeout);
     }
 
-    const targetCount = currentMode === 'flick' ? 1 : 5;
-    for (let i = 0; i < targetCount; i++) {
-        spawnTarget();
-    }
-
     if (currentMode === 'flick') {
-        teleportTargets();
+        spawnTarget();
+        nextAutoSpawnTime = baseInterval; // First automatic spawn at 5 seconds
+    } else {
+        const targetCount = 5;
+        for (let i = 0; i < targetCount; i++) {
+            spawnTarget();
+        }
     }
 }
 
 function resetGame() {
     isRunning = false;
+    // Clear all timers
     if (flickerTimeout) {
         clearTimeout(flickerTimeout);
     }
+    clearInterval(spawnInterval);
     targets.forEach(target => scene.remove(target.mesh));
     targets = [];
     reactionTimes = [];
@@ -314,6 +305,14 @@ function animate(currentTime) {
     if (isRunning) {
         const deltaTime = (currentTime - lastTime) / 1000;
         timer += deltaTime;
+        
+        // Check for automatic spawn in flick mode
+        if (currentMode === 'flick' && timer >= nextAutoSpawnTime) {
+            teleportTargets();
+            // Next spawn should be baseInterval seconds from this spawn
+            nextAutoSpawnTime += baseInterval;
+        }
+        
         updateMovement();
         updateTargets(deltaTime);
         updateHUD();
