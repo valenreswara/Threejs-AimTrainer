@@ -17,8 +17,8 @@ const roomBounds = { x: 24, y: 24, z: 24 }; // Adjust based on room size
 
 // Target spawn bounds - focused area in front of player
 const spawnBounds = {
-    x: { min: -5, max: 5 },    // Narrower horizontal range
-    y: { min: 0.5, max: 5 }, // Controlled vertical range
+    x: { min: -10, max: 10 },    // Narrower horizontal range
+    y: { min: 0.5, max: 10 }, // Controlled vertical range
     z: { min: -6, max: -3 }      // Only spawn in front of player
 };
 
@@ -65,13 +65,6 @@ function init() {
 }
 
 function createRoom() {
-    // const geometry = new THREE.BoxGeometry(50, 50, 50);
-    // const material = new THREE.MeshPhongMaterial({ 
-    //     color: 0x808080,
-    //     side: THREE.BackSide,
-    // });
-    // const room = new THREE.Mesh(geometry, material);
-    // scene.add(room);
 
     const textureLoader = new THREE.TextureLoader();
 
@@ -196,7 +189,7 @@ function spawnTarget() {
 }
 
 
-function updateTargets(deltaTime) {
+function updateTargets() {
     for (let i = targets.length - 1; i >= 0; i--) {
         const target = targets[i];
         if (currentMode === 'track') {
@@ -228,7 +221,25 @@ function teleportTargets() {
     });
 }
 
-function onMouseClick(event) {
+function playAudio(){
+    // create an AudioListener and add it to the camera
+    const listener = new THREE.AudioListener();
+    camera.add( listener );
+
+    // create a global audio source
+    const sound = new THREE.Audio( listener );
+
+    // load a sound and set it as the Audio object's buffer
+    const audioLoader = new THREE.AudioLoader();
+    audioLoader.load( 'ding.mp3', function( buffer ) {
+        sound.setBuffer( buffer );
+        sound.setLoop( false );
+        sound.setVolume( 0.5 );
+        sound.play();
+    });
+}
+
+function onMouseClick() {
     if (!isRunning) return;
     
     shots++;
@@ -241,6 +252,8 @@ function onMouseClick(event) {
         hits++;
         score += 100;
         const hitTarget = targets.find(t => t.mesh === intersects[0].object);
+
+        playAudio();
         
         const reactionTime = performance.now() - hitTarget.appearTime;
         reactionTimes.push(reactionTime);
